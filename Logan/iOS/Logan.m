@@ -383,16 +383,25 @@ NSString *_Nonnull loganTodaysDate(void) {
 + (NSDictionary *)allFilesInfo {
     NSArray *allFiles = [Logan localFilesArray];
     NSString *dateFormatString = @"yyyy-MM-dd";
-    NSMutableDictionary *infoDic = [NSMutableDictionary new];
+    NSMutableDictionary<NSString *, NSNumber *> *totals = [NSMutableDictionary new];
     for (NSString *file in allFiles) {
         if ([file pathExtension].length > 0) {
             continue;
         }
-        NSString *dateString = [file substringToIndex:dateFormatString.length];
-        unsigned long long gzFileSize = [Logan fileSizeAtPath:[self logFilePath:dateString]];
-        NSString *size = [NSString stringWithFormat:@"%llu", gzFileSize];
-        [infoDic setObject:size forKey:dateString];
+        NSRange us = [file rangeOfString:@"_"];
+        NSString *base = (us.location == NSNotFound) ? file : [file substringToIndex:us.location];
+        if (base.length != dateFormatString.length) {
+            continue;
+        }
+        unsigned long long thisSize = [Logan fileSizeAtPath:[self logFilePath:file]];
+        NSNumber *prev = totals[base];
+        unsigned long long sum = (prev ? [prev unsignedLongLongValue] : 0ULL) + thisSize;
+        totals[base] = @(sum);
     }
+    NSMutableDictionary<NSString *, NSString *> *infoDic = [NSMutableDictionary new];
+    [totals enumerateKeysAndObjectsUsingBlock:^(NSString *date, NSNumber *sum, BOOL *stop) {
+        infoDic[date] = [NSString stringWithFormat:@"%llu", [sum unsignedLongLongValue]];
+    }];
     return infoDic;
 }
 
@@ -445,29 +454,29 @@ NSString *_Nonnull loganTodaysDate(void) {
 
 + (void)deleteOutdatedFiles {
     NSArray *allFiles = [Logan localFilesArray];
-    __block NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
+    NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
     NSString *dateFormatString = @"yyyy-MM-dd";
     [formatter setDateFormat:dateFormatString];
-    [allFiles enumerateObjectsUsingBlock:^(NSString *_Nonnull dateStr, NSUInteger idx, BOOL *_Nonnull stop) {
-            // 检查后缀名
-        if ([dateStr pathExtension].length > 0) {
-            [self deleteLoganFile:dateStr];
+    [formatter setLocale:[NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"]];
+    NSString *todayStr = [Logan currentDate];
+    NSDate *todayDate = [formatter dateFromString:todayStr];
+
+    [allFiles enumerateObjectsUsingBlock:^(NSString *_Nonnull name, NSUInteger idx, BOOL *_Nonnull stop) {
+        // Stray .temp / .copy snapshots (orphans from a previous run).
+        if ([name pathExtension].length > 0) {
+            [self deleteLoganFile:name];
             return;
         }
-        
-            // 检查文件名长度
-        if (dateStr.length != (dateFormatString.length)) {
-            [self deleteLoganFile:dateStr];
+        // Slice off the optional "_{type}" tail to recover the date prefix.
+        NSRange us = [name rangeOfString:@"_"];
+        NSString *base = (us.location == NSNotFound) ? name : [name substringToIndex:us.location];
+        if (base.length != dateFormatString.length) {
+            [self deleteLoganFile:name];
             return;
         }
-            // 文件名转化为日期
-        dateStr = [dateStr substringToIndex:dateFormatString.length];
-        NSDate *date = [formatter dateFromString:dateStr];
-        NSString *todayStr = [Logan currentDate];
-        NSDate *todayDate = [formatter dateFromString:todayStr];
+        NSDate *date = [formatter dateFromString:base];
         if (!date || [self getDaysFrom:date To:todayDate] >= __max_reversed_date) {
-                // 删除过期文件
-            [self deleteLoganFile:dateStr];
+            [self deleteLoganFile:name];
         }
     }];
 }
