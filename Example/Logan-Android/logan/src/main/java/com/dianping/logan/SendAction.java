@@ -26,7 +26,12 @@ class SendAction {
 
     long fileSize; //文件大小
 
-    String date; //日期
+    String date; //日期 (yyyy-MM-dd 格式被解析后的 dayMillis 字符串)
+
+    /**
+     * 日志类型。null 表示旧版未拆分的 {date} 文件；非空表示 {date}_{type} 文件。
+     */
+    Integer type;
 
     String uploadPath;
 
