@@ -172,27 +172,32 @@ class LoganThread extends Thread {
 
     private void deleteExpiredFile(long deleteTime) {
         File dir = new File(mPath);
-        if (dir.isDirectory()) {
-            String[] files = dir.list();
-            if (files != null) {
-                for (String item : files) {
-                    try {
-                        if (TextUtils.isEmpty(item)) {
-                            continue;
-                        }
-                        String[] longStrArray = item.split("\\.");
-                        if (longStrArray.length > 0) {  //小于时间就删除
-                            long longItem = Long.valueOf(longStrArray[0]);
-                            if (longItem <= deleteTime && longStrArray.length == 1) {
-                                new File(mPath, item).delete(); //删除文件
-                            }
-                        }
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                    }
-                }
+        if (!dir.isDirectory()) {
+            return;
+        }
+        String[] files = dir.list();
+        if (files == null) {
+            return;
+        }
+        for (String item : files) {
+            if (shouldDeleteForExpiry(item, deleteTime)) {
+                new File(mPath, item).delete();
             }
         }
+    }
+
+    /**
+     * Pure decision function: does {@code name} belong to a non-{@code .copy}
+     * Logan file whose date is on or before {@code deleteTime}?
+     *
+     * <p>Visible for testing.
+     */
+    static boolean shouldDeleteForExpiry(String name, long deleteTime) {
+        FileNames.Parsed p = FileNames.parse(name);
+        if (p == null || p.isCopy) {
+            return false;
+        }
+        return p.dateMillis <= deleteTime;
     }
 
     private void doWriteLog2File(WriteAction action) {
