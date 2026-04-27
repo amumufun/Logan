@@ -42,6 +42,7 @@ uint32_t __max_reversed_date;
     NSTimeInterval _lastCheckFreeSpace;
 }
 @property (nonatomic, copy) NSString *lastLogDate;
+@property (nonatomic, strong) NSNumber *lastLogType;
 
 #if OS_OBJECT_USE_OBJC
 @property (nonatomic, strong) dispatch_queue_t loganQueue;
@@ -144,8 +145,10 @@ NSString *_Nonnull loganTodaysDate(void) {
     const char *aeskey = (const char *)[__AES_KEY bytes];
     const char *aesiv = (const char *)[__AES_IV bytes];
     clogan_init(path, path, (int)__max_file, aeskey, aesiv);
-    NSString *today = [Logan currentDate];
-    clogan_open((char *)today.UTF8String);
+    // The first writeLog:logType: call performs clogan_open with the
+    // typed filename {yyyy-MM-dd}_{type}. We deliberately don't open a
+    // bare {yyyy-MM-dd} file here so the new SDK never produces legacy
+    // bare files on disk.
     __AES_KEY = nil;
     __AES_IV = nil;
 }
@@ -173,12 +176,16 @@ NSString *_Nonnull loganTodaysDate(void) {
     
     dispatch_async(self.loganQueue, ^{
         NSString *today = [Logan currentDate];
-        if (self.lastLogDate && ![self.lastLogDate isEqualToString:today]) {
-                // 日期变化，立即写入日志文件
+        NSNumber *currentType = @(type);
+        BOOL dateChanged = self.lastLogDate && ![self.lastLogDate isEqualToString:today];
+        BOOL typeChanged = !self.lastLogType || ![self.lastLogType isEqual:currentType];
+        if (dateChanged || typeChanged) {
             clogan_flush();
-            clogan_open((char *)today.UTF8String);
+            NSString *filename = [NSString stringWithFormat:@"%@_%lu", today, (unsigned long)type];
+            clogan_open((char *)filename.UTF8String);
         }
         self.lastLogDate = today;
+        self.lastLogType = currentType;
         clogan_write((int)type, (char *)log.UTF8String, (long long)localTime, threadNameC, (long long)threadNum, (int)threadIsMain);
     });
 }
