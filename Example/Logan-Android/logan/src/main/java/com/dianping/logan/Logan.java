@@ -114,6 +114,22 @@ public class Logan {
     }
 
     /**
+     * @param date     "yyyy-MM-dd" 格式日期。
+     * @param types    要上报的日志类型数组。元素为 null 表示旧版未拆分的 {date}
+     *                 文件；非空整数表示对应的 {date}_{type} 文件。
+     *                 传入 null 或空数组等价于"上传该日期下的全部文件"，
+     *                 与 {@link #s(String[], SendLogRunnable)} 行为一致。
+     * @param runnable 用户实现的上报逻辑。每匹配一个文件会回调一次 sendLog(File)，
+     *                 调用方必须在每次回调结束后调用 {@link SendLogRunnable#finish()}。
+     */
+    public static void s(String date, Integer[] types, SendLogRunnable runnable) {
+        if (sLoganControlCenter == null) {
+            throw new RuntimeException("Please initialize Logan first");
+        }
+        sLoganControlCenter.send(date, types, runnable);
+    }
+
+    /**
      * @brief 返回所有日志文件信息
      */
     public static Map<String, Long> getAllFilesInfo() {
@@ -130,11 +146,13 @@ public class Logan {
         }
         Map<String, Long> allFilesInfo = new HashMap<>();
         for (File file : files) {
-            try {
-                allFilesInfo.put(Util.getDateStr(Long.parseLong(file.getName())), file.length());
-            } catch (NumberFormatException e) {
-                // ignore
+            FileNames.Parsed p = FileNames.parse(file.getName());
+            if (p == null || p.isCopy) {
+                continue;
             }
+            String dateStr = Util.getDateStr(p.dateMillis);
+            Long previous = allFilesInfo.get(dateStr);
+            allFilesInfo.put(dateStr, (previous == null ? 0L : previous) + file.length());
         }
         return allFilesInfo;
     }
