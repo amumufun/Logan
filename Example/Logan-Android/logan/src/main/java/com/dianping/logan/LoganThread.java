@@ -289,23 +289,31 @@ class LoganThread extends Thread {
         if (Logan.sDebug) {
             Log.d(TAG, "prepare log file");
         }
-        if (isFile(action.date)) { //是否有日期文件
-            String src = mPath + File.separator + action.date;
-            if (action.date.equals(String.valueOf(Util.getCurrentTime()))) {
-                doFlushLog2File();
-                String des = mPath + File.separator + action.date + ".copy";
-                if (copyFile(src, des)) {
-                    action.uploadPath = des;
-                    return true;
-                }
-            } else {
-                action.uploadPath = src;
+        long dateMillis;
+        try {
+            dateMillis = Long.parseLong(action.date);
+        } catch (NumberFormatException e) {
+            action.uploadPath = "";
+            return false;
+        }
+        String srcName = FileNames.compose(dateMillis, action.type);
+        if (!isFile(srcName)) {
+            action.uploadPath = "";
+            return false;
+        }
+        String src = mPath + File.separator + srcName;
+        if (dateMillis == Util.getCurrentTime()) {
+            doFlushLog2File();
+            String des = src + FileNames.COPY_SUFFIX;
+            if (copyFile(src, des)) {
+                action.uploadPath = des;
                 return true;
             }
-        } else {
             action.uploadPath = "";
+            return false;
         }
-        return false;
+        action.uploadPath = src;
+        return true;
     }
 
     private boolean copyFile(String src, String des) {
