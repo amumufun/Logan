@@ -59,6 +59,9 @@ uint32_t __max_reversed_date;
 - (void)flush;
 - (void)filePathForDate:(NSString *)date block:(LoganFilePathBlock)filePathBlock;
 + (void)uploadFileToServer:(NSString *)urlStr date:(NSString *)date appId:(NSString *)appId unionId:(NSString *)unionId deviceId:(NSString *)deviceId resultBlock:(LoganUploadResultBlock)resultBlock;
++ (NSArray<NSString *> *)logFileNamesForDate:(NSString *)date;
+- (void)filePathForName:(NSString *)name isToday:(BOOL)isToday block:(LoganFilePathBlock)filePathBlock;
+- (void)filePathForDate:(NSString *)date types:(NSArray *)types block:(LoganFilePathBlock)filePathBlock;
 @end
 
 void loganInit(NSData *_Nonnull aes_key16, NSData *_Nonnull aes_iv16, uint64_t max_file) {
@@ -99,6 +102,12 @@ NSDictionary *_Nullable loganAllFilesInfo(void) {
 
 void loganUploadFilePath(NSString *_Nonnull date, LoganFilePathBlock _Nonnull filePathBlock) {
     [[Logan logan] filePathForDate:date block:filePathBlock];
+}
+
+void loganUploadFilePathWithTypes(NSString *_Nonnull date,
+                                   NSArray *_Nullable types,
+                                   LoganFilePathBlock _Nonnull filePathBlock) {
+    [[Logan logan] filePathForDate:date types:types block:filePathBlock];
 }
 
 void loganUpload(NSString * _Nonnull url, NSString * _Nonnull date,NSString * _Nullable appId, NSString *_Nullable unionId,NSString *_Nullable deviceId, LoganUploadResultBlock _Nullable resultBlock){
@@ -325,43 +334,80 @@ NSString *_Nonnull loganTodaysDate(void) {
 }
 
 - (void)filePathForDate:(NSString *)date block:(LoganFilePathBlock)filePathBlock {
-    NSString *uploadFilePath = nil;
-    NSString *filePath = nil;
-    if (date.length) {
-        NSArray *allFiles = [Logan localFilesArray];
-        if ([allFiles containsObject:date]) {
-            filePath = [Logan logFilePath:date];
-            if ([[NSFileManager defaultManager] fileExistsAtPath:filePath]) {
-                uploadFilePath = filePath;
-            }
-        }
+    if (!date.length) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            filePathBlock(nil);
+        });
+        return;
     }
-    
-    if (uploadFilePath.length) {
-        if ([date isEqualToString:[Logan currentDate]]) {
-            dispatch_async(self.loganQueue, ^{
-                [self todayFilePatch:filePathBlock];
-            });
-            return;
-        }
+    NSArray<NSString *> *matches = [Logan logFileNamesForDate:date];
+    if (matches.count == 0) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            filePathBlock(nil);
+        });
+        return;
     }
-    dispatch_async(dispatch_get_main_queue(), ^{
-        filePathBlock(uploadFilePath);
-    });
+    BOOL isToday = [date isEqualToString:[Logan currentDate]];
+    for (NSString *name in matches) {
+        [self filePathForName:name isToday:isToday block:filePathBlock];
+    }
 }
 
-- (void)todayFilePatch:(LoganFilePathBlock)filePathBlock {
-    [self flushInQueue];
-    NSString *uploadFilePath = [Logan uploadFilePath:[Logan currentDate]];
-    NSString *filePath = [Logan logFilePath:[Logan currentDate]];
-    NSError *error;
-    [[NSFileManager defaultManager] removeItemAtPath:uploadFilePath error:&error];
-    if (![[NSFileManager defaultManager] copyItemAtPath:filePath toPath:uploadFilePath error:&error]) {
-        uploadFilePath = nil;
+- (void)filePathForDate:(NSString *)date types:(NSArray *)types block:(LoganFilePathBlock)filePathBlock {
+    if (!date.length) {
+        return;
     }
-    
+    if (types == nil || types.count == 0) {
+        // Enumerate every file present for the date — matches the legacy
+        // filePathForDate:block: behavior.
+        [self filePathForDate:date block:filePathBlock];
+        return;
+    }
+    BOOL isToday = [date isEqualToString:[Logan currentDate]];
+    for (id rawType in types) {
+        NSString *name;
+        if ([rawType isKindOfClass:[NSNull class]]) {
+            name = date;
+        } else if ([rawType isKindOfClass:[NSNumber class]]) {
+            name = [NSString stringWithFormat:@"%@_%lu", date, (unsigned long)[(NSNumber *)rawType unsignedIntegerValue]];
+        } else {
+            continue;
+        }
+        NSString *filePath = [Logan logFilePath:name];
+        if (![[NSFileManager defaultManager] fileExistsAtPath:filePath]) {
+            // Skip-if-missing — see header doc for divergence from the
+            // single-shot loganUploadFilePath contract.
+            continue;
+        }
+        [self filePathForName:name isToday:isToday block:filePathBlock];
+    }
+}
+
+- (void)filePathForName:(NSString *)name isToday:(BOOL)isToday block:(LoganFilePathBlock)filePathBlock {
+    NSString *filePath = [Logan logFilePath:name];
+    if (![[NSFileManager defaultManager] fileExistsAtPath:filePath]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            filePathBlock(nil);
+        });
+        return;
+    }
+    if (isToday) {
+        dispatch_async(self.loganQueue, ^{
+            [self flushInQueue];
+            NSString *uploadFilePath = [Logan uploadFilePath:name];
+            NSError *error;
+            [[NSFileManager defaultManager] removeItemAtPath:uploadFilePath error:&error];
+            if (![[NSFileManager defaultManager] copyItemAtPath:filePath toPath:uploadFilePath error:&error]) {
+                uploadFilePath = nil;
+            }
+            dispatch_async(dispatch_get_main_queue(), ^{
+                filePathBlock(uploadFilePath);
+            });
+        });
+        return;
+    }
     dispatch_async(dispatch_get_main_queue(), ^{
-        filePathBlock(uploadFilePath);
+        filePathBlock(filePath);
     });
 }
 
@@ -403,6 +449,23 @@ NSString *_Nonnull loganTodaysDate(void) {
         infoDic[date] = [NSString stringWithFormat:@"%llu", [sum unsignedLongLongValue]];
     }];
     return infoDic;
+}
+
++ (NSArray<NSString *> *)logFileNamesForDate:(NSString *)date {
+    if (!date.length) {
+        return @[];
+    }
+    NSString *exactPrefix = [date stringByAppendingString:@"_"];
+    NSMutableArray<NSString *> *out = [NSMutableArray array];
+    for (NSString *name in [Logan localFilesArray]) {
+        if ([name pathExtension].length > 0) {
+            continue;
+        }
+        if ([name isEqualToString:date] || [name hasPrefix:exactPrefix]) {
+            [out addObject:name];
+        }
+    }
+    return out;
 }
 
 #pragma mark - file

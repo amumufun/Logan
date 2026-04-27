@@ -100,6 +100,23 @@ extern NSDictionary *_Nullable loganAllFilesInfo(void);
 extern void loganUploadFilePath(NSString *_Nonnull date, LoganFilePathBlock _Nonnull filePathBlock);
 
 /**
+ 根据日期+类型获取上传日志的文件路径，异步方式。每匹配一个磁盘上存在的
+ 文件，filePathBlock 会被回调一次（在主线程）。
+
+ @param date          日志日期 格式："2018-11-21"。
+ @param types         NSArray<NSNumber *>。元素为 NSNull 表示旧版未拆分的
+                      {date} 文件；元素为非空 NSNumber 表示 {date}_{type}
+                      文件。传 nil 或空数组表示"枚举该日期下所有存在的
+                      文件"。
+ @param filePathBlock 每个存在的匹配文件回调一次。**不存在的类型不回调** —
+                      与 loganUploadFilePath 的"无文件即回调一次 nil"
+                      语义不同，避免对未生成的类型产生噪声回调。
+ */
+extern void loganUploadFilePathWithTypes(NSString *_Nonnull date,
+                                          NSArray *_Nullable types,
+                                          LoganFilePathBlock _Nonnull filePathBlock);
+
+/**
  上传指定日期的日志
  
  @param url 接受日志的服务器完整url
