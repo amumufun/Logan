@@ -121,16 +121,55 @@ class LoganControlCenter {
             }
             long time = getDateTime(date);
             if (time > 0) {
-                LoganModel model = new LoganModel();
-                SendAction action = new SendAction();
-                model.action = LoganModel.Action.SEND;
-                action.date = String.valueOf(time);
-                action.sendLogRunnable = runnable;
-                model.sendAction = action;
-                mCacheLogQueue.add(model);
-                if (mLoganThread != null) {
-                    mLoganThread.notifyRun();
-                }
+                enqueueAllForDate(time, runnable);
+            }
+        }
+    }
+
+    void send(String date, Integer[] types, SendLogRunnable runnable) {
+        if (TextUtils.isEmpty(mPath) || TextUtils.isEmpty(date) || runnable == null) {
+            return;
+        }
+        long time = getDateTime(date);
+        if (time <= 0) {
+            return;
+        }
+        if (types == null || types.length == 0) {
+            enqueueAllForDate(time, runnable);
+            return;
+        }
+        for (Integer type : types) {
+            enqueueSend(time, type, runnable);
+        }
+    }
+
+    private void enqueueSend(long dateMillis, Integer type, SendLogRunnable runnable) {
+        LoganModel model = new LoganModel();
+        SendAction action = new SendAction();
+        model.action = LoganModel.Action.SEND;
+        action.date = String.valueOf(dateMillis);
+        action.type = type;
+        action.sendLogRunnable = runnable;
+        model.sendAction = action;
+        mCacheLogQueue.add(model);
+        if (mLoganThread != null) {
+            mLoganThread.notifyRun();
+        }
+    }
+
+    private void enqueueAllForDate(long dateMillis, SendLogRunnable runnable) {
+        File dir = new File(mPath);
+        String[] entries = dir.isDirectory() ? dir.list() : null;
+        if (entries == null) {
+            return;
+        }
+        for (String name : entries) {
+            FileNames.Parsed p = FileNames.parse(name);
+            if (p == null || p.isCopy) {
+                continue;
+            }
+            if (p.dateMillis == dateMillis) {
+                enqueueSend(dateMillis, p.type, runnable);
             }
         }
     }
