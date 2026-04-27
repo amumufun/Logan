@@ -48,6 +48,7 @@ class LoganThread extends Thread {
     private volatile boolean mIsRun = true;
 
     private long mCurrentDay;
+    private int mCurrentType = Integer.MIN_VALUE; // sentinel: no file open yet
     private volatile boolean mIsWorking;
     private File mFileDirectory;
     private boolean mIsSDCard;
@@ -202,13 +203,15 @@ class LoganThread extends Thread {
             mFileDirectory = new File(mPath);
         }
 
-        if (!isDay()) {
+        if (!isDay() || action.flag != mCurrentType) {
             long tempCurrentDay = Util.getCurrentTime();
-            //save时间
-            long deleteTime = tempCurrentDay - mSaveTime;
-            deleteExpiredFile(deleteTime);
-            mCurrentDay = tempCurrentDay;
-            mLoganProtocol.logan_open(String.valueOf(mCurrentDay));
+            if (!isDay()) {
+                long deleteTime = tempCurrentDay - mSaveTime;
+                deleteExpiredFile(deleteTime);
+                mCurrentDay = tempCurrentDay;
+            }
+            mCurrentType = action.flag;
+            mLoganProtocol.logan_open(FileNames.compose(mCurrentDay, mCurrentType));
         }
 
         long currentTime = System.currentTimeMillis(); //每隔1分钟判断一次
